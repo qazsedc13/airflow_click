@@ -49,6 +49,8 @@ services:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
       AIRFLOW_CONN_CLICKHOUSE_CONN: "clickhouse://airflow:airflow@clickhouse:8123/airflow"
+      AIRFLOW__OPENLINEAGE__DISABLED: "true"
+      AIRFLOW__CORE__LOAD_DEFAULT_CONNECTIONS: "false"
     volumes:
       - ./dags:/opt/airflow/dags
       - ./logs:/opt/airflow/logs
@@ -76,6 +78,8 @@ services:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
       AIRFLOW_CONN_CLICKHOUSE_CONN: "clickhouse://airflow:airflow@clickhouse:8123/airflow"
+      AIRFLOW__CORE__LOAD_DEFAULT_CONNECTIONS: "false"
+      AIRFLOW__OPENLINEAGE__DISABLED: "true"
     depends_on:
       airflow-webserver:
         condition: service_healthy
