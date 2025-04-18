@@ -1,15 +1,22 @@
-version: '3.8'
-
-volumes:
-  postgres_data:
-  clickhouse_data:
-  greenplum_data:
-
-networks:
-  analytics_net:
-
 services:
-  # PostgreSQL (для Airflow metadata + общее использование)
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    environment:
+      CLICKHOUSE_DB: airflow
+      CLICKHOUSE_USER: airflow
+      CLICKHOUSE_PASSWORD: airflow
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --query 'SELECT 1'"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
   postgres:
     image: postgres:13
     environment:
@@ -18,72 +25,39 @@ services:
       POSTGRES_DB: airflow
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
-    networks:
-      - analytics_net
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U airflow -d airflow"]
+      test: ["CMD-SHELL", "pg_isready -U airflow"]
       interval: 5s
       timeout: 5s
       retries: 5
 
-  # ClickHouse
-  clickhouse:
-    image: clickhouse/clickhouse-server:latest
-    ports:
-      - "8123:8123" # HTTP
-      - "9000:9000" # Native
-    volumes:
-      - clickhouse_data:/var/lib/clickhouse
-    networks:
-      - analytics_net
-    environment:
-      CLICKHOUSE_DB: analytics
-      CLICKHOUSE_USER: admin
-      CLICKHOUSE_PASSWORD: secret
-
-  # Greenplum (упрощенная версия для разработки)
-  greenplum:
-    image: greenplum/greenplum:6
-    ports:
-      - "5433:5432"
-    volumes:
-      - greenplum_data:/data
-    networks:
-      - analytics_net
-    environment:
-      - USER=gpadmin
-      - PASSWORD=greenplum
-
-  # Airflow
   airflow-webserver:
-    image: apache/airflow:2.5.1
-    command: webserver
-    depends_on:
-      postgres:
-        condition: service_healthy
+    build: .
+    image: custom-airflow
+    command: >
+      bash -c "
+      while ! airflow db check; do sleep 5; done;
+      airflow db migrate;
+      airflow users create --username admin --password admin --firstname Admin --lastname Admin --role Admin --email admin@example.com || true;
+      airflow webserver
+      "
     ports:
       - "8080:8080"
     environment:
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "postgresql+psycopg2://airflow:airflow@postgres/airflow"
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
-      AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
-      AIRFLOW__CORE__FERNET_KEY: 46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLbfzqDDho=
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW_CONN_CLICKHOUSE_CONN: "clickhouse://airflow:airflow@clickhouse:8123/airflow"
     volumes:
       - ./dags:/opt/airflow/dags
-    networks:
-      - analytics_net
-
-  airflow-scheduler:
-    image: apache/airflow:2.5.1
-    command: scheduler
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
     depends_on:
-      - airflow-webserver
-    environment:
-      AIRFLOW__CORE__EXECUTOR: LocalExecutor
-      AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
-      AIRFLOW__CORE__FERNET_KEY: 46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLbfzqDDho=
-    volumes:
-      - ./dags:/opt/airflow/dags
-    networks:
-      - analytics_net
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  clickhouse_data:
