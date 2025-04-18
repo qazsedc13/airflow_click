@@ -87,7 +87,49 @@ services:
         condition: service_healthy
       clickhouse:
         condition: service_healthy
+  
+  superset:
+    build: ./superset
+    image: superset-with-clickhouse
+    container_name: superset
+    ports:
+      - "8088:8088"
+    environment:
+      - SUPERSET_SECRET_KEY=your-secret-key-change-me  # 🔑 Замените на реальный!
+      - FLASK_APP=superset.app:create_app()
+      - SUPERSET_ENABLE_PROXY_FIX=True
+      - CLICKHOUSE_HOST=clickhouse
+      - CLICKHOUSE_PORT=8123
+      - CLICKHOUSE_USER=airflow
+      - CLICKHOUSE_PASSWORD=airflow
+    volumes:
+      - superset_data:/var/lib/superset
+      - ./superset:/app/superset_home
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8088/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  superset-init:
+    image: superset-with-clickhouse
+    depends_on:
+      superset:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    command: bash -c "superset fab create-admin --username admin --firstname Admin --lastname User --email admin@example.com --password admin && superset db upgrade && superset init && superset set-database-uri --database-name ClickHouse --uri clickhouse://airflow:airflow@clickhouse:8123/airflow"
+    volumes:
+      - ./superset:/app/superset_home
+    environment:
+      - SUPERSET_SECRET_KEY=your-secret-key-change-me
+      - FLASK_APP=superset.app:create_app()
 
 volumes:
   postgres_data:
   clickhouse_data:
+  superset_data:

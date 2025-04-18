@@ -2,9 +2,21 @@ FROM apache/airflow:2.8.1
 
 USER root
 RUN rm -rf /root/.cache/pip
+
+# Установка дополнительных инструментов
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        build-essential \
+        libssl-dev \
+        libffi-dev \
+        python3-dev \
+        libsasl2-dev \
+        libldap2-dev && \
+    rm -rf /var/lib/apt/lists/*
+
 USER airflow
 
-# Устанавливаем совместимые версии для Airflow 2.8.1
+# Устанавливаем только нужные для Airflow пакеты
 RUN pip install --no-cache-dir \
     "psycopg2-binary==2.9.6" \
     "SQLAlchemy==1.4.46" \

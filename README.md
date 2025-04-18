@@ -1,15 +1,13 @@
 markdown
-# Airflow + ClickHouse в Docker
+# Airflow + ClickHouse + Superset в Docker
 
-<!-- Основной заголовок проекта -->
-Комплексная установка Apache Airflow с интеграцией ClickHouse в Docker-окружении
+Комплексная установка Apache Airflow с интеграцией ClickHouse и Apache Superset в Docker-окружении
 
 ## 📋 Предварительные требования
 
-<!-- Требования к системе -->
 - Docker Engine 20.10+ (версия с поддержкой Compose V2)
 - Docker Compose 2.0+
-- 4GB+ свободной оперативной памяти
+- 4GB+ свободной оперативной памяти (8GB+ рекомендуется)
 - WSL2 (для Windows пользователей)
 
 ## 🚀 Быстрый старт
@@ -18,22 +16,22 @@ markdown
 
 ```bash
 git clone git@github.com:qazsedc13/airflow_click.git
-cd airflow-clickhouse-docker
+cd airflow_click
 ```
 ### 2. Инициализация окружения
 <!-- Создаем необходимые директории -->
 ```bash
-mkdir -p ./dags ./logs ./plugins
+mkdir -p ./dags ./logs ./plugins ./superset
 chmod -R 777 ./logs  # Только для разработки!
 ```
 ### 3. Запуск сервисов
 ```bash
 docker compose up -d --build
 ```
-### 4. Доступ к Airflow
-Откройте в браузере:
-http://localhost:8080
-Логин/пароль по умолчанию: admin / admin
+### 4. Доступ к интерфейсам
+- Airflow: http://localhost:8080 (admin/admin)
+- Superset: http://localhost:8088 (admin/admin)
+- ClickHouse HTTP: http://localhost:8123
 
 ## 🛠 Управление сервисами
 Старт всех сервисов
@@ -55,11 +53,12 @@ docker compose ps
 ```
 Просмотр логов
 ```bash
-# Логи Airflow webserver
+# Логи Airflow
 docker compose logs -f airflow-webserver
-
-# Логи планировщика
 docker compose logs -f airflow-scheduler
+
+# Логи Superset
+docker compose logs -f superset
 
 # Логи ClickHouse
 docker compose logs -f clickhouse
@@ -69,9 +68,30 @@ docker compose logs -f clickhouse
 |---------------------|---------|-----------------------------------|
 | Airflow Webserver   | 8080    | Веб-интерфейс и REST API          |
 | Airflow Scheduler   | -       | Обработка DAG и планирование задач|
-| PostgreSQL          | 5432    | Метаданные Airflow                |
+| Superset            | 8088    | BI-панели и визуализации          |
+| PostgreSQL          | 5432    | Метаданные Airflow и Superset     |
 | ClickHouse (HTTP)   | 8123    | HTTP-интерфейс                    |
 | ClickHouse (Native) | 9000    | Нативный протокол                 |
+## 📊 Работа с Superset
+### Начальная настройка
+
+1. После первого запуска автоматически:
+   - Создается admin-пользователь (`admin/admin`)
+   - Настраивается подключение к ClickHouse
+   - Импортируются базовые роли и разрешения
+
+2. Для ручного добавления источника данных:
+   - Перейдите в **Data** → **Databases**
+   - Добавьте новое подключение:
+
+     ```
+     clickhouse://airflow:airflow@clickhouse:8123/airflow
+     ```
+
+### Примеры дашбордов
+
+Поместите файлы конфигураций дашбордов в `./superset/dashboards/`
+
 ## 📂 Работа с DAG
 Поместите ваши DAG-файлы в папку ./dags
 
@@ -107,21 +127,23 @@ docker compose exec airflow-webserver airflow connections list
 docker compose exec clickhouse clickhouse-client --user airflow --password airflow --query "SHOW DATABASES"
 ```
 ## ⚙️ Конфигурация
-Переменные окружения
-Основные настройки в docker compose.yml:
+## Переменные окружения
 
-AIRFLOW__CORE__EXECUTOR: Исполняющая система (LocalExecutor/CeleryExecutor)
+Основные настройки в **docker-compose.yml**:
 
-AIRFLOW_CONN_*: Настройки подключений
+- `SUPERSET_SECRET_KEY`: Ключ безопасности Superset  
+- `CLICKHOUSE_*`: Учетные данные ClickHouse  
+- `AIRFLOW_*`: Настройки Airflow  
 
-CLICKHOUSE_*: Учетные данные ClickHouse
+## Установка дополнительных пакетов
 
-Установка дополнительных пакетов
-Добавьте в Dockerfile:
+Для Superset добавьте в **superset/Dockerfile**:
 
 ```dockerfile
 RUN pip install <ваш-пакет>
 ```
+Для Airflow - в основной Dockerfile
+
 и пересоберите контейнеры.
 
 ## 🏭 Продуктивная среда
