@@ -107,16 +107,14 @@ docker compose exec airflow-webserver airflow connections list
 docker compose exec clickhouse clickhouse-client --user airflow --password airflow --query "SHOW DATABASES"
 ```
 ## ⚙️ Конфигурация
-Переменные окружения
+### Переменные окружения
 Основные настройки в docker compose.yml:
 
-AIRFLOW__CORE__EXECUTOR: Исполняющая система (LocalExecutor/CeleryExecutor)
+- `AIRFLOW__CORE__EXECUTOR`: Исполняющая система (LocalExecutor/CeleryExecutor)
+- `AIRFLOW_CONN_*`: Настройки подключений
+- `CLICKHOUSE_*`: Учетные данные ClickHouse
 
-AIRFLOW_CONN_*: Настройки подключений
-
-CLICKHOUSE_*: Учетные данные ClickHouse
-
-Установка дополнительных пакетов
+### Установка дополнительных пакетов
 Добавьте в Dockerfile:
 
 ```dockerfile
