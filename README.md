@@ -127,7 +127,7 @@ docker compose exec airflow-webserver airflow connections list
 docker compose exec clickhouse clickhouse-client --user airflow --password airflow --query "SHOW DATABASES"
 ```
 ## ⚙️ Конфигурация
-## Переменные окружения
+### Переменные окружения
 
 Основные настройки в **docker-compose.yml**:
 
@@ -135,7 +135,7 @@ docker compose exec clickhouse clickhouse-client --user airflow --password airfl
 - `CLICKHOUSE_*`: Учетные данные ClickHouse  
 - `AIRFLOW_*`: Настройки Airflow  
 
-## Установка дополнительных пакетов
+### Установка дополнительных пакетов
 
 Для Superset добавьте в **superset/Dockerfile**:
 
