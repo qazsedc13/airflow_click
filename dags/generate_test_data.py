@@ -5,11 +5,12 @@ from airflow.hooks.base import BaseHook
 from clickhouse_driver import Client
 from datetime import datetime, timedelta
 from airflow.providers.postgres.hooks.postgres import PostgresHook
+from tqdm import tqdm
 import logging
 
-# Параметры генерации
-ROWS_COUNT = 1_000_000  # 1 млн строк
-CHUNK_SIZE = 100_000    # Размер пачки для вставки
+# Параметры
+ROWS_COUNT = 1_000_000_000
+CHUNK_SIZE = 100_000
 
 default_args = {
     'owner': 'airflow',
@@ -73,7 +74,7 @@ def insert_pg_data():
         conn = hook.get_conn()
         cursor = conn.cursor()
         
-        for i in range(0, ROWS_COUNT, CHUNK_SIZE):
+        for i in tqdm(range(0, ROWS_COUNT, CHUNK_SIZE), desc="PostgreSQL Insert"):
             data = generate_fake_data(CHUNK_SIZE, offset=i)
             values = ','.join(cursor.mogrify("(%s,%s,%s,%s,%s,%s)", row).decode('utf-8') 
                       for row in data)
@@ -82,31 +83,54 @@ def insert_pg_data():
                 VALUES {values}
             """)
             conn.commit()
-            logging.info(f"Inserted {len(data)} rows into PostgreSQL (offset {i})")
             
     except Exception as e:
-        logging.error(f"Error inserting into PostgreSQL: {str(e)}")
+        logging.error(f"PostgreSQL Error: {str(e)}")
         raise
     finally:
         if conn:
             conn.close()
 
 def insert_clickhouse_data(**context):
-    """Вставка данных в ClickHouse с обработкой ошибок"""
+    """Вставка данных в ClickHouse"""
     try:
         client = get_clickhouse_client()
         
-        for i in range(0, ROWS_COUNT, CHUNK_SIZE):
+        for i in tqdm(range(0, ROWS_COUNT, CHUNK_SIZE), desc="ClickHouse Insert"):
             data = generate_fake_data(CHUNK_SIZE, offset=i)
             client.execute(
-                "INSERT INTO users (id, username, email, created_at, group_id, region_id) VALUES",
+                "INSERT INTO users VALUES",
                 data,
-                types_check=True
+                types_check=True,
+                settings={
+                    'max_insert_block_size': 100000,
+                    'async_insert': 1,
+                    'wait_for_async_insert': 0
+                }
             )
-            logging.info(f"Inserted {len(data)} rows into ClickHouse (offset {i})")
             
     except Exception as e:
-        logging.error(f"Error inserting into ClickHouse: {str(e)}")
+        logging.error(f"ClickHouse Error: {str(e)}")
+        raise
+
+def verify_results():
+    """Проверка количества записей в обеих БД"""
+    try:
+        # Проверка PostgreSQL
+        pg_hook = PostgresHook(postgres_conn_id='postgres_data_conn')
+        pg_count = pg_hook.get_first("SELECT COUNT(*) FROM users")[0]
+        
+        # Проверка ClickHouse
+        ch_client = get_clickhouse_client()
+        ch_count = ch_client.execute("SELECT COUNT(*) FROM users")[0][0]
+        
+        logging.info(f"PostgreSQL rows: {pg_count}, ClickHouse rows: {ch_count}")
+        
+        if pg_count != ROWS_COUNT or ch_count != ROWS_COUNT:
+            raise ValueError(f"Data count mismatch! Expected: {ROWS_COUNT}, PG: {pg_count}, CH: {ch_count}")
+            
+    except Exception as e:
+        logging.error(f"Verification failed: {str(e)}")
         raise
 
 with DAG(
@@ -146,8 +170,13 @@ with DAG(
 
     insert_ch_data_task = PythonOperator(
         task_id='insert_ch_data',
-        python_callable=insert_clickhouse_data,
-        provide_context=True
+        python_callable=insert_clickhouse_data
     )
 
-    create_pg_tables >> create_ch_tables >> [insert_pg_data_task, insert_ch_data_task]
+    verify_task = PythonOperator(
+        task_id='verify_results',
+        python_callable=verify_results,
+        trigger_rule='all_done'
+    )
+
+    create_pg_tables >> create_ch_tables >> [insert_pg_data_task, insert_ch_data_task] >> verify_task

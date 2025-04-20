@@ -55,7 +55,7 @@ services:
       while ! airflow db check; do sleep 5; done;
       airflow db migrate;
       airflow users create --username admin --password admin --firstname Admin --lastname Admin --role Admin --email admin@example.com || true;
-      airflow connections add --conn-uri 'clickhouse://airflow:airflow@clickhouse:8123/airflow' clickhouse_conn || true;
+      airflow connections add --conn-uri 'clickhouse://airflow:airflow@clickhouse:9000/default' clickhouse_conn || true;
       airflow connections add --conn-uri 'postgresql://data_user:data_password@postgres_data:5432/data_db' postgres_data_conn || true;
       airflow webserver
       "
@@ -65,7 +65,7 @@ services:
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "postgresql+psycopg2://airflow:airflow@postgres/airflow"
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
-      AIRFLOW_CONN_CLICKHOUSE_CONN: "clickhouse://airflow:airflow@clickhouse:8123/airflow"
+      AIRFLOW_CONN_CLICKHOUSE_CONN: "clickhouse://airflow:airflow@clickhouse:9000/default"
       AIRFLOW__OPENLINEAGE__DISABLED: "true"
       AIRFLOW__CORE__LOAD_DEFAULT_CONNECTIONS: "false"
     volumes:

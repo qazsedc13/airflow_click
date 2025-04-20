@@ -23,4 +23,5 @@ RUN pip install --no-cache-dir \
     "clickhouse-driver==0.2.6" \
     "clickhouse-sqlalchemy==0.2.4" \
     "apache-airflow-providers-jdbc==4.5.1" \
+    "tqdm" \
     && rm -rf /home/airflow/.cache/pip
