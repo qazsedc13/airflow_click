@@ -16,15 +16,10 @@ default_args = {
     'retry_delay': timedelta(minutes=5),
 }
 
-def generate_fake_data(rows):
+def generate_fake_data(rows, offset=0):
     """Генерация данных для вставки."""
     return [
-        (i, f"user_{i}", f"user_{i}@example.com", 
-         datetime.strptime(  # Преобразуем строку в datetime объект
-                datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 
-                "%Y-%m-%d %H:%M:%S"
-            ),
-         i % 100, i % 10)
+        (i + offset, f"user_{i + offset}", f"user_{i + offset}@example.com", datetime.now(), i % 100, i % 10)
         for i in range(rows)
     ]
 
@@ -76,10 +71,10 @@ def create_clickhouse_tables():
 def insert_clickhouse_data(**context):
     """Вставка тестовых данных в ClickHouse"""
     ti = context['ti']
-    data = generate_fake_data(CHUNK_SIZE)
-    
-    client = get_clickhouse_client()
-    client.execute("INSERT INTO users VALUES", data)
+    for i in range(ROWS_COUNT // CHUNK_SIZE):
+        data = generate_fake_data(CHUNK_SIZE, offset=i * CHUNK_SIZE)
+        client = get_clickhouse_client()
+        client.execute("INSERT INTO users VALUES", data)
 
 with DAG(
     'generate_test_data',
@@ -113,14 +108,20 @@ with DAG(
     )
 
     # 3. Вставляем данные в PostgreSQL (пачками)
-    insert_pg_data = PostgresOperator(
-        task_id='insert_pg_data',
-        postgres_conn_id='postgres_data_conn',
-        sql=f"""
-        INSERT INTO users (id, username, email, created_at, group_id, region_id)
-        VALUES {','.join(['%s'] * CHUNK_SIZE)};
-        """,
-        parameters=generate_fake_data(CHUNK_SIZE),
+    insert_pg_data = PythonOperator(
+    task_id='insert_pg_data',
+    python_callable=lambda: [
+        PostgresOperator(
+            task_id=f'insert_pg_data_{i}',
+            postgres_conn_id='postgres_data_conn',
+            sql=f"""
+            INSERT INTO users (id, username, email, created_at, group_id, region_id)
+            VALUES {','.join(['%s'] * CHUNK_SIZE)};
+            """,
+            parameters=generate_fake_data(CHUNK_SIZE, offset=i * CHUNK_SIZE),
+        ).execute(None)
+        for i in range(ROWS_COUNT // CHUNK_SIZE)
+    ],
     )
 
     # 4. Вставляем данные в ClickHouse (пачками)
