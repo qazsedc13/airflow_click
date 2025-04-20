@@ -4,7 +4,8 @@ from airflow.providers.postgres.operators.postgres import PostgresOperator
 from airflow.hooks.base import BaseHook
 from clickhouse_driver import Client
 from datetime import datetime, timedelta
-import json
+from airflow.providers.postgres.hooks.postgres import PostgresHook
+import logging
 
 # Параметры генерации
 ROWS_COUNT = 1_000_000  # 1 млн строк
@@ -19,7 +20,8 @@ default_args = {
 def generate_fake_data(rows, offset=0):
     """Генерация данных для вставки."""
     return [
-        (i + offset, f"user_{i + offset}", f"user_{i + offset}@example.com", datetime.now(), i % 100, i % 10)
+        (i + offset, f"user_{i + offset}", f"user_{i + offset}@example.com", 
+         datetime.now(), i % 100, i % 10)
         for i in range(rows)
     ]
 
@@ -35,20 +37,19 @@ def get_clickhouse_client():
             password=conn.password,
             database=conn.schema or 'default',
             secure=False,
-            connect_timeout=10  # Таймаут подключения
+            connect_timeout=10,
+            settings={'use_numpy': False}  # Отключаем numpy для совместимости
         )
-        # Проверяем подключение
-        client.execute('SELECT 1')
+        client.execute('SELECT 1')  # Проверка подключения
         return client
     except Exception as e:
-        print(f"ClickHouse connection error: {str(e)}")
+        logging.error(f"ClickHouse connection error: {str(e)}")
         raise
 
 def create_clickhouse_tables():
     """Создание таблиц в ClickHouse"""
     try:
         client = get_clickhouse_client()
-        # Сначала создаем таблицу (если не существует)
         client.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id Int32,
@@ -60,21 +61,53 @@ def create_clickhouse_tables():
         ) ENGINE = MergeTree()
         ORDER BY (id)
         """)
-        
-        # Затем очищаем таблицу отдельным запросом
         client.execute("TRUNCATE TABLE users")
-        
     except Exception as e:
-        print(f"Error creating tables: {str(e)}")
+        logging.error(f"Error creating ClickHouse tables: {str(e)}")
         raise
 
+def insert_pg_data():
+    """Вставка данных в PostgreSQL"""
+    try:
+        hook = PostgresHook(postgres_conn_id='postgres_data_conn')
+        conn = hook.get_conn()
+        cursor = conn.cursor()
+        
+        for i in range(0, ROWS_COUNT, CHUNK_SIZE):
+            data = generate_fake_data(CHUNK_SIZE, offset=i)
+            values = ','.join(cursor.mogrify("(%s,%s,%s,%s,%s,%s)", row).decode('utf-8') 
+                      for row in data)
+            cursor.execute(f"""
+                INSERT INTO users (id, username, email, created_at, group_id, region_id)
+                VALUES {values}
+            """)
+            conn.commit()
+            logging.info(f"Inserted {len(data)} rows into PostgreSQL (offset {i})")
+            
+    except Exception as e:
+        logging.error(f"Error inserting into PostgreSQL: {str(e)}")
+        raise
+    finally:
+        if conn:
+            conn.close()
+
 def insert_clickhouse_data(**context):
-    """Вставка тестовых данных в ClickHouse"""
-    ti = context['ti']
-    for i in range(ROWS_COUNT // CHUNK_SIZE):
-        data = generate_fake_data(CHUNK_SIZE, offset=i * CHUNK_SIZE)
+    """Вставка данных в ClickHouse с обработкой ошибок"""
+    try:
         client = get_clickhouse_client()
-        client.execute("INSERT INTO users VALUES", data)
+        
+        for i in range(0, ROWS_COUNT, CHUNK_SIZE):
+            data = generate_fake_data(CHUNK_SIZE, offset=i)
+            client.execute(
+                "INSERT INTO users (id, username, email, created_at, group_id, region_id) VALUES",
+                data,
+                types_check=True
+            )
+            logging.info(f"Inserted {len(data)} rows into ClickHouse (offset {i})")
+            
+    except Exception as e:
+        logging.error(f"Error inserting into ClickHouse: {str(e)}")
+        raise
 
 with DAG(
     'generate_test_data',
@@ -82,9 +115,9 @@ with DAG(
     schedule_interval=None,
     start_date=datetime(2024, 1, 1),
     catchup=False,
+    max_active_runs=1,
 ) as dag:
 
-    # 1. Создаём таблицы в PostgreSQL
     create_pg_tables = PostgresOperator(
         task_id='create_pg_tables',
         postgres_conn_id='postgres_data_conn',
@@ -101,34 +134,20 @@ with DAG(
         """
     )
 
-    # 2. Создаём таблицы в ClickHouse
     create_ch_tables = PythonOperator(
         task_id='create_ch_tables',
         python_callable=create_clickhouse_tables
     )
 
-    # 3. Вставляем данные в PostgreSQL (пачками)
-    insert_pg_data = PythonOperator(
-    task_id='insert_pg_data',
-    python_callable=lambda: [
-        PostgresOperator(
-            task_id=f'insert_pg_data_{i}',
-            postgres_conn_id='postgres_data_conn',
-            sql=f"""
-            INSERT INTO users (id, username, email, created_at, group_id, region_id)
-            VALUES {','.join(['%s'] * CHUNK_SIZE)};
-            """,
-            parameters=generate_fake_data(CHUNK_SIZE, offset=i * CHUNK_SIZE),
-        ).execute(None)
-        for i in range(ROWS_COUNT // CHUNK_SIZE)
-    ],
+    insert_pg_data_task = PythonOperator(
+        task_id='insert_pg_data',
+        python_callable=insert_pg_data
     )
 
-    # 4. Вставляем данные в ClickHouse (пачками)
-    insert_ch_data = PythonOperator(
+    insert_ch_data_task = PythonOperator(
         task_id='insert_ch_data',
         python_callable=insert_clickhouse_data,
         provide_context=True
     )
 
-    create_pg_tables >> create_ch_tables >> [insert_pg_data, insert_ch_data]
+    create_pg_tables >> create_ch_tables >> [insert_pg_data_task, insert_ch_data_task]
