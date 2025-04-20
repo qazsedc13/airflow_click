@@ -12,3 +12,6 @@ databases:
     
 - database_name: AirflowDB
   sqlalchemy_uri: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}
+
+- database_name: PostgresData
+  sqlalchemy_uri: postgresql+psycopg2://${POSTGRES_DATA_USER}:${POSTGRES_DATA_PASSWORD}@${POSTGRES_DATA_HOST}:${POSTGRES_DATA_PORT}/${POSTGRES_DATA_DB}

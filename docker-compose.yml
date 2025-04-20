@@ -31,6 +31,22 @@ services:
       timeout: 5s
       retries: 5
 
+  postgres_data:
+    image: postgres:13
+    environment:
+      POSTGRES_USER: data_user
+      POSTGRES_PASSWORD: data_password
+      POSTGRES_DB: data_db
+    volumes:
+      - postgres_data_volume:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"  # Меняем порт, чтобы не конфликтовал с основным PostgreSQL
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U data_user"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   airflow-webserver:
     build: .
     image: custom-airflow
@@ -40,6 +56,7 @@ services:
       airflow db migrate;
       airflow users create --username admin --password admin --firstname Admin --lastname Admin --role Admin --email admin@example.com || true;
       airflow connections add --conn-uri 'clickhouse://airflow:airflow@clickhouse:8123/airflow' clickhouse_conn || true;
+      airflow connections add --conn-uri 'postgresql://data_user:data_password@postgres_data:5432/data_db' postgres_data_conn || true;
       airflow webserver
       "
     ports:
@@ -57,9 +74,10 @@ services:
       - ./plugins:/opt/airflow/plugins
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 10s
-      timeout: 10s
-      retries: 5
+      interval: 30s
+      timeout: 30s  # Увеличиваем таймаут
+      retries: 10   # Увеличиваем количество попыток
+      start_period: 120s  # Увеличиваем период старта
     depends_on:
       postgres:
         condition: service_healthy
@@ -68,18 +86,26 @@ services:
 
   airflow-scheduler:
     image: custom-airflow
-    command: scheduler
+    command: bash -c "airflow db check && airflow scheduler"
     volumes:
       - ./dags:/opt/airflow/dags
       - ./logs:/opt/airflow/logs
       - ./plugins:/opt/airflow/plugins
+    restart: on-failure
     environment:
+      AIRFLOW__CORE__SQL_ALCHEMY_CONN: "postgresql+psycopg2://airflow:airflow@postgres/airflow"
+      AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: "30"
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "postgresql+psycopg2://airflow:airflow@postgres/airflow"
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
       AIRFLOW_CONN_CLICKHOUSE_CONN: "clickhouse://airflow:airflow@clickhouse:8123/airflow"
       AIRFLOW__CORE__LOAD_DEFAULT_CONNECTIONS: "false"
       AIRFLOW__OPENLINEAGE__DISABLED: "true"
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
     depends_on:
       airflow-webserver:
         condition: service_healthy
@@ -102,6 +128,11 @@ services:
       - CLICKHOUSE_PORT=8123
       - CLICKHOUSE_USER=airflow
       - CLICKHOUSE_PASSWORD=airflow
+      - POSTGRES_DATA_HOST=postgres_data
+      - POSTGRES_DATA_PORT=5432
+      - POSTGRES_DATA_USER=data_user
+      - POSTGRES_DATA_PASSWORD=data_password
+      - POSTGRES_DATA_DB=data_db
     volumes:
       - superset_data:/var/lib/superset
       - ./superset:/app/superset_home
@@ -122,7 +153,14 @@ services:
         condition: service_healthy
       clickhouse:
         condition: service_healthy
-    command: bash -c "superset fab create-admin --username admin --firstname Admin --lastname User --email admin@example.com --password admin && superset db upgrade && superset init && superset set-database-uri --database-name ClickHouse --uri clickhouse://airflow:airflow@clickhouse:8123/airflow"
+    command: bash -c "
+        superset fab create-admin --username admin --firstname Admin --lastname User --email admin@example.com --password admin && 
+        superset db upgrade && 
+        superset init && 
+        superset set-database-uri --database-name ClickHouse --uri clickhouse://airflow:airflow@clickhouse:8123/airflow &&
+        superset set-database-uri --database-name PostgresData --uri postgresql+psycopg2://data_user:data_password@postgres_data/data_db
+      "
+
     volumes:
       - ./superset:/app/superset_home
     environment:
@@ -131,5 +169,6 @@ services:
 
 volumes:
   postgres_data:
+  postgres_data_volume:
   clickhouse_data:
   superset_data:

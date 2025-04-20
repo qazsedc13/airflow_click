@@ -1,3 +1,4 @@
 logs*
 superset/.cache*
 superset/.local*
+superset/superset.db
