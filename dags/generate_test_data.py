@@ -9,7 +9,7 @@ from tqdm import tqdm
 import logging
 
 # Параметры
-ROWS_COUNT = 1_000_000_000
+ROWS_COUNT = 10_000_000
 CHUNK_SIZE = 100_000
 
 default_args = {
