@@ -24,11 +24,15 @@ cd airflow_click
 mkdir -p ./dags ./logs ./plugins ./superset
 chmod -R 777 ./logs  # Только для разработки!
 ```
-### 3. Запуск сервисов
+### 3. Первый запуск сервисов после клонирования репозитория
+```bash
+docker compose build --no-cache && docker compose up -d
+```
+### 4. Первый запуск сервисов
 ```bash
 docker compose up -d --build
 ```
-### 4. Доступ к интерфейсам
+### 5. Доступ к интерфейсам
 - Airflow: http://localhost:8080 (admin/admin)
 - Superset: http://localhost:8088 (admin/admin)
 - ClickHouse HTTP: http://localhost:8123
