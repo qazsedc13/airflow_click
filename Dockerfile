@@ -18,10 +18,10 @@ USER airflow
 
 # Устанавливаем только нужные для Airflow пакеты
 RUN pip install --no-cache-dir \
-    "psycopg2-binary==2.9.6" \
-    "SQLAlchemy==1.4.46" \
-    "clickhouse-driver==0.2.6" \
-    "clickhouse-sqlalchemy==0.2.4" \
+    "psycopg2-binary==2.9.9" \
+    "SQLAlchemy==1.4.52" \
+    "clickhouse-driver==0.2.7" \
+    "clickhouse-sqlalchemy==0.3.0" \
     "apache-airflow-providers-jdbc==4.5.1" \
     "tqdm" \
     && rm -rf /home/airflow/.cache/pip
